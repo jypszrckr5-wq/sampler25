@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>UNIT-16 // Mic Sampler</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{
+    --chassis:#18181b;
+    --panel:#212124;
+    --panel-2:#26262a;
+    --pad-off:#2c2c31;
+    --pad-edge:#3a3a41;
+    --pad-loaded:#3a3228;
+    --text:#e9e7e1;
+    --text-dim:#8b8a90;
+    --text-faint:#57575d;
+    --amber:#ffb020;
+    --red:#ff4433;
+    --cyan:#38e0c4;
+    --screw:#3f3f45;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none;}
+  html,body{
+    margin:0; padding:0; background:var(--chassis); color:var(--text);
+    font-family:'IBM Plex Mono',monospace;
+    height:100%;
+    overscroll-behavior:none;
+  }
+  body{
+    display:flex; flex-direction:column;
+    min-height:100vh; min-height:100dvh;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  /* ---------- Header ---------- */
+  .chassis-top{
+    padding:16px 16px 10px;
+    display:flex; align-items:flex-start; justify-content:space-between;
+    border-bottom:1px solid #000;
+    background:linear-gradient(180deg,#1e1e21,#18181b);
+    position:relative;
+  }
+  .brand{ display:flex; flex-direction:column; }
+  .brand .name{
+    font-family:'IBM Plex Sans Condensed',sans-serif;
+    font-weight:700; font-size:20px; letter-spacing:0.08em; color:var(--text);
+  }
+  .brand .name span{ color:var(--amber); }
+  .brand .sub{ font-size:9px; color:var(--text-faint); letter-spacing:0.15em; margin-top:2px; }
+
+  .meter-wrap{ display:flex; align-items:center; gap:8px; }
+  .meter{
+    width:10px; height:34px; border-radius:2px; background:#0e0e10;
+    border:1px solid #000; overflow:hidden; position:relative;
+    display:flex; align-items:flex-end;
+  }
+  .meter-fill{
+    width:100%; height:0%; background:linear-gradient(0deg,var(--amber),var(--cyan) 85%);
+    transition:height 60ms linear;
+  }
+  .meter-label{ font-size:8px; color:var(--text-faint); letter-spacing:0.1em; }
+
+  .kit-export{
+    display:flex; align-items:center; gap:5px;
+    background:var(--panel-2); border:1px solid var(--pad-edge); color:var(--text-dim);
+    font-family:'IBM Plex Mono',monospace; font-size:9px; letter-spacing:0.07em; font-weight:600;
+    padding:8px 10px; border-radius:7px; margin-top:2px;
+  }
+  .kit-export:active{ transform:scale(0.96); }
+  .kit-export svg{ width:11px; height:11px; opacity:0.8; }
+  .header-right{ display:flex; flex-direction:column; align-items:flex-end; gap:8px; }
+
+  /* ---------- Transport row ---------- */
+  .transport{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 16px; gap:10px;
+    background:var(--panel);
+    border-bottom:1px solid #000;
+  }
+  .rec-btn{
+    display:flex; align-items:center; gap:8px;
+    background:var(--panel-2); border:1px solid var(--pad-edge);
+    border-radius:8px; padding:9px 14px;
+    font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:12px;
+    letter-spacing:0.08em; color:var(--text-dim);
+    flex:1;
+  }
+  .rec-btn .dot{ width:9px; height:9px; border-radius:50%; background:var(--red); opacity:0.35; }
+  .rec-btn.armed{ color:var(--red); border-color:var(--red); background:#2a1613; }
+  .rec-btn.armed .dot{ opacity:1; box-shadow:0 0 8px var(--red); animation:pulse 1s infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+  .status-line{
+    font-size:10px; color:var(--text-faint); letter-spacing:0.05em; text-align:right; min-width:120px;
+  }
+  .status-line b{ color:var(--text-dim); font-weight:600; }
+
+  /* ---------- Pad grid ---------- */
+  .grid-wrap{ padding:14px 14px 8px; flex:0 0 auto; }
+  .grid{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:10px;
+  }
+  .pad{
+    position:relative;
+    aspect-ratio:1/1;
+    background:var(--pad-off);
+    border:1px solid #000;
+    border-top:1px solid #414147;
+    border-radius:10px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    box-shadow: inset 0 -3px 0 rgba(0,0,0,0.4), 0 2px 3px rgba(0,0,0,0.5);
+    transition:transform 60ms ease, box-shadow 60ms ease, background 120ms ease;
+  }
+  .pad .idx{
+    position:absolute; top:6px; left:8px; font-size:9px; color:var(--text-faint); letter-spacing:0.05em;
+  }
+  .pad .ring{
+    width:34px; height:34px; border-radius:50%;
+    border:2px solid var(--pad-edge);
+    display:flex; align-items:center; justify-content:center;
+    transition:border-color 100ms, box-shadow 100ms;
+  }
+  .pad .ring svg{ width:14px; height:14px; opacity:0.5; }
+  .pad .len{ position:absolute; bottom:6px; font-size:8px; color:var(--text-faint); letter-spacing:0.03em; }
+  .pad .wave-mini{
+    position:absolute; left:6px; right:6px; bottom:18px; height:16px;
+    opacity:0; transition:opacity 150ms;
+  }
+  .pad.loaded .wave-mini{ opacity:0.55; }
+  .pad.playing .wave-mini{ opacity:0.95; }
+
+  .pad.loaded{ background:var(--pad-loaded); }
+  .pad.loaded .ring{ border-color:var(--amber); }
+  .pad.loaded .ring svg{ opacity:1; stroke:var(--amber); }
+
+  .pad.armed-target{ border-color:var(--red); box-shadow: inset 0 -3px 0 rgba(0,0,0,0.4), 0 0 0 1px var(--red); }
+
+  .pad.recording{ background:#3a1712; }
+  .pad.recording .ring{ border-color:var(--red); box-shadow:0 0 12px rgba(255,68,51,0.5); animation:pulse 0.8s infinite; }
+
+  .pad.playing{ transform:scale(0.94); }
+  .pad.playing .ring{ border-color:var(--cyan); box-shadow:0 0 14px rgba(56,224,196,0.55); }
+
+  .pad.selected{ box-shadow: inset 0 -3px 0 rgba(0,0,0,0.4), 0 0 0 2px var(--cyan); }
+
+  .pad .mod-flag{
+    position:absolute; top:6px; right:8px; font-size:8px; letter-spacing:0.05em; color:var(--cyan); opacity:0;
+  }
+  .pad.has-mod .mod-flag{ opacity:0.9; }
+
+  /* ---------- Edit panel ---------- */
+  .edit-panel{
+    margin:10px 14px 14px; background:var(--panel); border:1px solid #000; border-top:1px solid #333;
+    border-radius:12px; padding:14px 16px 18px;
+    flex:1 1 auto;
+    display:flex; flex-direction:column; gap:14px;
+    min-height:0;
+  }
+  .edit-header{ display:flex; align-items:center; justify-content:space-between; }
+  .edit-title{ font-size:12px; letter-spacing:0.08em; color:var(--text); font-weight:600; }
+  .edit-title span{ color:var(--text-faint); font-weight:400; }
+  .edit-actions{ display:flex; gap:8px; }
+  .mini-btn{
+    background:var(--panel-2); border:1px solid var(--pad-edge); color:var(--text-dim);
+    font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.05em;
+    padding:6px 10px; border-radius:6px;
+  }
+  .mini-btn.danger{ color:var(--red); border-color:#5a2a24; }
+  .mini-btn:active{ transform:scale(0.96); }
+
+  .empty-hint{
+    color:var(--text-faint); font-size:11px; line-height:1.6; letter-spacing:0.02em;
+    padding:20px 4px; text-align:center;
+  }
+
+  .control{ display:flex; flex-direction:column; gap:6px; }
+  .control-label{
+    display:flex; justify-content:space-between; font-size:10px; letter-spacing:0.06em; color:var(--text-dim);
+  }
+  .control-label b{ color:var(--amber); font-weight:600; }
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:26px; background:transparent;
+  }
+  input[type=range]::-webkit-slider-runnable-track{
+    height:4px; background:var(--pad-edge); border-radius:2px;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:18px; height:18px; margin-top:-7px; border-radius:50%;
+    background:var(--text); border:2px solid var(--chassis); box-shadow:0 1px 3px rgba(0,0,0,0.6);
+  }
+
+  .seg{ display:flex; gap:6px; }
+  .seg button{
+    flex:1; background:var(--panel-2); border:1px solid var(--pad-edge); color:var(--text-dim);
+    font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.05em;
+    padding:8px 4px; border-radius:6px;
+  }
+  .seg button.active{ color:var(--chassis); background:var(--cyan); border-color:var(--cyan); font-weight:600; }
+
+  .wave-large-wrap{
+    background:#151517; border:1px solid #000; border-radius:8px; padding:8px;
+  }
+  .wave-large{ width:100%; height:64px; display:block; }
+
+  .export-row{ display:flex; gap:8px; }
+  .export-row .mini-btn{ flex:1; text-align:center; }
+  .mini-btn.accent{ color:var(--cyan); border-color:#1f4a43; }
+
+  .footer-note{
+    text-align:center; font-size:8px; color:var(--text-faint); letter-spacing:0.1em;
+    padding:6px 0 10px;
+  }
+
+  /* ---------- Mic permission overlay ---------- */
+  .perm-overlay{
+    position:fixed; inset:0; z-index:50;
+    background:rgba(15,15,17,0.94);
+    backdrop-filter:blur(2px);
+    display:flex; align-items:center; justify-content:center;
+    padding:24px;
+    transition:opacity 200ms ease;
+  }
+  .perm-overlay.hidden{ opacity:0; pointer-events:none; }
+  .perm-card{
+    background:var(--panel); border:1px solid #000; border-top:1px solid #333;
+    border-radius:14px; padding:26px 22px 22px; max-width:320px; width:100%;
+    text-align:center; box-shadow:0 12px 40px rgba(0,0,0,0.6);
+  }
+  .perm-icon{
+    width:52px; height:52px; margin:0 auto 16px; border-radius:50%;
+    border:2px solid var(--amber); display:flex; align-items:center; justify-content:center;
+  }
+  .perm-icon svg{ width:22px; height:22px; stroke:var(--amber); }
+  .perm-title{
+    font-family:'IBM Plex Sans Condensed',sans-serif; font-weight:700; font-size:16px;
+    letter-spacing:0.06em; color:var(--text); margin-bottom:8px;
+  }
+  .perm-body{
+    font-size:11px; line-height:1.6; color:var(--text-dim); letter-spacing:0.02em;
+    margin-bottom:20px;
+  }
+  .perm-btn{
+    width:100%; background:var(--amber); color:#1a1200; border:none;
+    font-family:'IBM Plex Mono',monospace; font-weight:700; font-size:12px; letter-spacing:0.08em;
+    padding:13px; border-radius:8px; margin-bottom:10px;
+  }
+  .perm-btn:active{ transform:scale(0.98); }
+  .perm-btn.retry{ background:var(--red); }
+  .perm-skip{
+    background:none; border:none; color:var(--text-faint); font-family:'IBM Plex Mono',monospace;
+    font-size:10px; letter-spacing:0.05em; padding:8px; text-decoration:underline;
+  }
+  .perm-status{
+    font-size:10px; color:var(--red); letter-spacing:0.03em; margin-bottom:12px; min-height:14px;
+  }
+</style>
+</head>
+<body>
+
+  <div class="perm-overlay" id="permOverlay">
+    <div class="perm-card">
+      <div class="perm-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4"/></svg>
+      </div>
+      <div class="perm-title">MICROPHONE ACCESS</div>
+      <div class="perm-body">UNIT-16 samples sound directly from your mic onto the pad grid. Allow access to start recording.</div>
+      <div class="perm-status" id="permStatus"></div>
+      <button class="perm-btn" id="permBtn">ALLOW MICROPHONE</button>
+      <button class="perm-skip" id="permSkip">SKIP FOR NOW</button>
+    </div>
+  </div>
+
+
+  <div class="chassis-top">
+    <div class="brand">
+      <div class="name">UNIT<span>16</span></div>
+      <div class="sub">MIC SAMPLER &middot; PITCH / MOD</div>
+    </div>
+    <div class="header-right">
+      <div class="meter-wrap">
+        <div class="meter-label">IN</div>
+        <div class="meter"><div class="meter-fill" id="meterFill"></div></div>
+      </div>
+      <button class="kit-export" id="kitExportBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16"/></svg>
+        EXPORT KIT
+      </button>
+    </div>
+  </div>
+
+  <div class="transport">
+    <button class="rec-btn" id="recBtn">
+      <span class="dot"></span> ARM RECORD
+    </button>
+    <div class="status-line" id="statusLine">tap ARM, then a pad</div>
+  </div>
+
+  <div class="grid-wrap">
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <div class="edit-panel" id="editPanel">
+    <div class="empty-hint" id="emptyHint">
+      SELECT A LOADED PAD (LONG-PRESS) TO SHAPE ITS PITCH &amp; MODULATION.<br>
+      TAP <b style="color:var(--amber)">ARM RECORD</b>, THEN TAP AN EMPTY PAD TO SAMPLE FROM THE MIC. TAP AGAIN TO STOP.
+    </div>
+
+    <div id="editBody" style="display:none; flex-direction:column; gap:16px;">
+      <div class="edit-header">
+        <div class="edit-title" id="editTitle">PAD <span id="editIdx">01</span></div>
+        <div class="edit-actions">
+          <button class="mini-btn" id="rerecBtn">RE-REC</button>
+          <button class="mini-btn danger" id="clearBtn">CLEAR</button>
+        </div>
+      </div>
+
+      <div class="wave-large-wrap">
+        <canvas class="wave-large" id="waveLarge"></canvas>
+      </div>
+
+      <div class="control">
+        <div class="control-label"><span>PITCH</span><b id="pitchVal">0 st</b></div>
+        <input type="range" id="pitchSlider" min="-24" max="24" step="1" value="0">
+      </div>
+
+      <div class="control">
+        <div class="control-label"><span>MOD TARGET</span></div>
+        <div class="seg" id="modTargetSeg">
+          <button data-v="off" class="active">OFF</button>
+          <button data-v="pitch">VIBRATO</button>
+          <button data-v="filter">WOBBLE</button>
+          <button data-v="both">BOTH</button>
+        </div>
+      </div>
+
+      <div class="control">
+        <div class="control-label"><span>LFO SHAPE</span></div>
+        <div class="seg" id="modShapeSeg">
+          <button data-v="sine" class="active">SINE</button>
+          <button data-v="triangle">TRI</button>
+          <button data-v="square">SQUARE</button>
+        </div>
+      </div>
+
+      <div class="control">
+        <div class="control-label"><span>MOD RATE</span><b id="rateVal">4.0 Hz</b></div>
+        <input type="range" id="rateSlider" min="0.2" max="18" step="0.1" value="4">
+      </div>
+
+      <div class="control">
+        <div class="control-label"><span>MOD DEPTH</span><b id="depthVal">30%</b></div>
+        <input type="range" id="depthSlider" min="0" max="100" step="1" value="30">
+      </div>
+
+      <div class="export-row">
+        <button class="mini-btn accent" id="exportPadBtn">EXPORT WAV</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-note">HOLD DEVICE STEADY WHILE SAMPLING &middot; 8S MAX PER PAD</div>
+
+<script>
+(function(){
+  const N_PADS = 16;
+  const MAX_SEC = 8;
+
+  const pads = Array.from({length:N_PADS}, (_,i)=>({
+    idx:i, buffer:null, name:`P${(i+1).toString().padStart(2,'0')}`,
+    pitch:0, modTarget:'off', modShape:'sine', modRate:4, modDepth:30, durLabel:''
+  }));
+
+  let audioCtx = null;
+  let micStream = null, micSource = null, analyser = null, analyserData = null;
+  let mediaRecorder = null, recChunks = [], recordingPadIdx = -1;
+  let armed = false;
+  let selectedIdx = -1;
+  let activeVoices = new Map(); // padIdx -> {src, lfo1, lfo2}
+  let mimeType = 'audio/webm';
+
+  const gridEl = document.getElementById('grid');
+  const recBtn = document.getElementById('recBtn');
+  const statusLine = document.getElementById('statusLine');
+  const meterFill = document.getElementById('meterFill');
+  const editBody = document.getElementById('editBody');
+  const emptyHint = document.getElementById('emptyHint');
+  const editIdx = document.getElementById('editIdx');
+  const pitchSlider = document.getElementById('pitchSlider');
+  const pitchVal = document.getElementById('pitchVal');
+  const rateSlider = document.getElementById('rateSlider');
+  const rateVal = document.getElementById('rateVal');
+  const depthSlider = document.getElementById('depthSlider');
+  const depthVal = document.getElementById('depthVal');
+  const modTargetSeg = document.getElementById('modTargetSeg');
+  const modShapeSeg = document.getElementById('modShapeSeg');
+  const rerecBtn = document.getElementById('rerecBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const waveLarge = document.getElementById('waveLarge');
+  const exportPadBtn = document.getElementById('exportPadBtn');
+  const kitExportBtn = document.getElementById('kitExportBtn');
+  const permOverlay = document.getElementById('permOverlay');
+  const permBtn = document.getElementById('permBtn');
+  const permSkip = document.getElementById('permSkip');
+  const permStatus = document.getElementById('permStatus');
+
+  function ensureAudioCtx(){
+    if(!audioCtx){
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+
+  async function ensureMic(){
+    if(micStream) return;
+    micStream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}});
+    const ctx = ensureAudioCtx();
+    micSource = ctx.createMediaStreamSource(micStream);
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    analyserData = new Uint8Array(analyser.frequencyBinCount);
+    micSource.connect(analyser);
+
+    const candidates = ['audio/mp4','audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus'];
+    mimeType = candidates.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
+    meterLoop();
+  }
+
+  function meterLoop(){
+    requestAnimationFrame(meterLoop);
+    if(!analyser) return;
+    analyser.getByteTimeDomainData(analyserData);
+    let peak = 0;
+    for(let i=0;i<analyserData.length;i++){
+      const v = Math.abs(analyserData[i]-128)/128;
+      if(v>peak) peak = v;
+    }
+    meterFill.style.height = Math.min(100, peak*160) + '%';
+  }
+
+  function buildGrid(){
+    gridEl.innerHTML = '';
+    pads.forEach(pad=>{
+      const el = document.createElement('div');
+      el.className = 'pad';
+      el.dataset.idx = pad.idx;
+      el.innerHTML = `
+        <div class="idx">${(pad.idx+1).toString().padStart(2,'0')}</div>
+        <div class="mod-flag">MOD</div>
+        <div class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="6,4 20,12 6,20"/></svg></div>
+        <canvas class="wave-mini"></canvas>
+        <div class="len"></div>
+      `;
+      let pressTimer = null, longPressed = false;
+      el.addEventListener('pointerdown', (e)=>{
+        longPressed = false;
+        pressTimer = setTimeout(()=>{
+          longPressed = true;
+          if(pad.buffer) selectPad(pad.idx);
+        }, 450);
+      });
+      el.addEventListener('pointerup', (e)=>{
+        clearTimeout(pressTimer);
+        if(!longPressed) handlePadTap(pad.idx);
+      });
+      el.addEventListener('pointercancel', ()=> clearTimeout(pressTimer));
+      gridEl.appendChild(el);
+    });
+  }
+
+  function padEl(i){ return gridEl.querySelector(`.pad[data-idx="${i}"]`); }
+
+  // ---------- Waveform drawing ----------
+  function drawWaveform(canvas, buffer, color){
+    if(!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.max(1, Math.floor(rect.width * dpr));
+    const h = Math.max(1, Math.floor(rect.height * dpr));
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0,0,w,h);
+    if(!buffer) return;
+    const data = buffer.getChannelData(0);
+    const step = Math.max(1, Math.ceil(data.length / w));
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1, dpr);
+    ctx.beginPath();
+    for(let x=0; x<w; x++){
+      let min=1.0, max=-1.0;
+      const start = x*step;
+      const end = Math.min(start+step, data.length);
+      for(let j=start;j<end;j++){
+        const v = data[j];
+        if(v<min) min=v;
+        if(v>max) max=v;
+      }
+      if(min>max){ min=0; max=0; }
+      const y1 = (1-((max+1)*0.5))*h;
+      const y2 = (1-((min+1)*0.5))*h;
+      ctx.moveTo(x, y1);
+      ctx.lineTo(x, Math.max(y1+1,y2));
+    }
+    ctx.stroke();
+  }
+
+  // ---------- WAV export ----------
+  function audioBufferToWav(buffer){
+    const numChannels = buffer.numberOfChannels;
+    const sampleRate = buffer.sampleRate;
+    let samples;
+    if(numChannels === 2){
+      samples = interleave(buffer.getChannelData(0), buffer.getChannelData(1));
+    } else {
+      samples = buffer.getChannelData(0);
+    }
+    return encodeWAV(samples, sampleRate, numChannels);
+  }
+
+  function interleave(left, right){
+    const length = left.length + right.length;
+    const result = new Float32Array(length);
+    let index=0, inputIndex=0;
+    while(index<length){
+      result[index++] = left[inputIndex];
+      result[index++] = right[inputIndex];
+      inputIndex++;
+    }
+    return result;
+  }
+
+  function encodeWAV(samples, sampleRate, numChannels){
+    const bitDepth = 16;
+    const bytesPerSample = bitDepth/8;
+    const blockAlign = numChannels*bytesPerSample;
+    const buffer = new ArrayBuffer(44 + samples.length*bytesPerSample);
+    const view = new DataView(buffer);
+
+    writeString(view,0,'RIFF');
+    view.setUint32(4, 36+samples.length*bytesPerSample, true);
+    writeString(view,8,'WAVE');
+    writeString(view,12,'fmt ');
+    view.setUint32(16,16,true);
+    view.setUint16(20,1,true); // PCM
+    view.setUint16(22,numChannels,true);
+    view.setUint32(24,sampleRate,true);
+    view.setUint32(28, sampleRate*blockAlign, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitDepth, true);
+    writeString(view,36,'data');
+    view.setUint32(40, samples.length*bytesPerSample, true);
+
+    let offset = 44;
+    for(let i=0;i<samples.length;i++,offset+=2){
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, s<0 ? s*0x8000 : s*0x7FFF, true);
+    }
+    return new Blob([view], {type:'audio/wav'});
+  }
+
+  function writeString(view, offset, str){
+    for(let i=0;i<str.length;i++) view.setUint8(offset+i, str.charCodeAt(i));
+  }
+
+  function downloadBlob(blob, filename){
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=> URL.revokeObjectURL(url), 4000);
+  }
+
+  function refreshPadVisual(i){
+    const pad = pads[i];
+    const el = padEl(i);
+    el.classList.toggle('loaded', !!pad.buffer);
+    el.classList.toggle('selected', selectedIdx===i);
+    el.classList.toggle('has-mod', pad.modTarget !== 'off' && !!pad.buffer);
+    el.querySelector('.len').textContent = pad.durLabel;
+  }
+
+  function handlePadTap(i){
+    ensureAudioCtx();
+    const pad = pads[i];
+    if(armed){
+      if(recordingPadIdx === i){
+        stopRecording();
+      } else if(recordingPadIdx === -1){
+        startRecording(i);
+      }
+      return;
+    }
+    if(pad.buffer){
+      triggerPad(i);
+    } else {
+      statusLine.textContent = 'empty — arm & record';
+    }
+  }
+
+  async function startRecording(i){
+    try{
+      await ensureMic();
+    }catch(err){
+      statusLine.textContent = 'mic permission denied';
+      return;
+    }
+    recChunks = [];
+    recordingPadIdx = i;
+    padEl(i).classList.add('recording');
+    statusLine.textContent = `rec // pad ${i+1}`;
+    try{
+      mediaRecorder = mimeType ? new MediaRecorder(micStream, {mimeType}) : new MediaRecorder(micStream);
+    }catch(e){
+      mediaRecorder = new MediaRecorder(micStream);
+    }
+    mediaRecorder.ondataavailable = (e)=>{ if(e.data && e.data.size>0) recChunks.push(e.data); };
+    mediaRecorder.onstop = onRecordingStop;
+    mediaRecorder.start();
+    clearTimeout(startRecording._autoStop);
+    startRecording._autoStop = setTimeout(()=>{ if(recordingPadIdx===i) stopRecording(); }, MAX_SEC*1000);
+  }
+
+  function stopRecording(){
+    if(mediaRecorder && mediaRecorder.state !== 'inactive'){
+      mediaRecorder.stop();
+    }
+  }
+
+  async function onRecordingStop(){
+    const i = recordingPadIdx;
+    padEl(i).classList.remove('recording');
+    const blob = new Blob(recChunks, {type: mimeType || 'audio/webm'});
+    recordingPadIdx = -1;
+    statusLine.textContent = 'decoding…';
+    try{
+      const arrBuf = await blob.arrayBuffer();
+      const ctx = ensureAudioCtx();
+      const audioBuffer = await ctx.decodeAudioData(arrBuf);
+      pads[i].buffer = audioBuffer;
+      pads[i].durLabel = audioBuffer.duration.toFixed(1) + 's';
+      refreshPadVisual(i);
+      drawWaveform(padEl(i).querySelector('.wave-mini'), audioBuffer, '#ffb020');
+      statusLine.textContent = `pad ${i+1} loaded`;
+    }catch(err){
+      statusLine.textContent = 'sample too short/failed';
+    }
+    setArmed(false);
+  }
+
+  function triggerPad(i){
+    const pad = pads[i];
+    if(!pad.buffer) return;
+    const ctx = ensureAudioCtx();
+
+    stopVoice(i);
+
+    const src = ctx.createBufferSource();
+    src.buffer = pad.buffer;
+    src.detune.value = pad.pitch * 100;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 9000;
+    filter.Q.value = 0.7;
+
+    const gainNode = ctx.createGain();
+    gainNode.gain.value = 0.9;
+
+    src.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    let lfoPitch = null, lfoFilter = null;
+
+    if(pad.modTarget === 'pitch' || pad.modTarget === 'both'){
+      lfoPitch = ctx.createOscillator();
+      lfoPitch.type = pad.modShape;
+      lfoPitch.frequency.value = pad.modRate;
+      const depthGain = ctx.createGain();
+      depthGain.gain.value = (pad.modDepth/100) * 300; // up to 300 cents
+      lfoPitch.connect(depthGain);
+      depthGain.connect(src.detune);
+      lfoPitch.start();
+    }
+    if(pad.modTarget === 'filter' || pad.modTarget === 'both'){
+      lfoFilter = ctx.createOscillator();
+      lfoFilter.type = pad.modShape;
+      lfoFilter.frequency.value = pad.modRate;
+      const depthGain = ctx.createGain();
+      depthGain.gain.value = (pad.modDepth/100) * 4000; // up to 4kHz swing
+      filter.frequency.value = 5000;
+      lfoFilter.connect(depthGain);
+      depthGain.connect(filter.frequency);
+      lfoFilter.start();
+    }
+
+    src.onended = ()=>{
+      padEl(i).classList.remove('playing');
+      if(lfoPitch) try{lfoPitch.stop();}catch(e){}
+      if(lfoFilter) try{lfoFilter.stop();}catch(e){}
+      activeVoices.delete(i);
+    };
+    src.start();
+    padEl(i).classList.add('playing');
+    activeVoices.set(i, {src, lfoPitch, lfoFilter});
+  }
+
+  function stopVoice(i){
+    const v = activeVoices.get(i);
+    if(v){
+      try{ v.src.stop(); }catch(e){}
+    }
+  }
+
+  function setArmed(v){
+    armed = v;
+    recBtn.classList.toggle('armed', armed);
+    gridEl.querySelectorAll('.pad').forEach(el=> el.classList.remove('armed-target'));
+    if(armed){
+      statusLine.textContent = 'armed — tap empty pad';
+      gridEl.querySelectorAll('.pad').forEach(el=>{
+        const idx = +el.dataset.idx;
+        if(!pads[idx].buffer) el.classList.add('armed-target');
+      });
+    } else {
+      if(recordingPadIdx === -1) statusLine.textContent = 'ready';
+    }
+  }
+
+  recBtn.addEventListener('click', ()=>{
+    ensureAudioCtx();
+    if(recordingPadIdx !== -1){ stopRecording(); return; }
+    setArmed(!armed);
+  });
+
+  function selectPad(i){
+    selectedIdx = i;
+    gridEl.querySelectorAll('.pad').forEach(el=> el.classList.remove('selected'));
+    padEl(i).classList.add('selected');
+    const pad = pads[i];
+    emptyHint.style.display = 'none';
+    editBody.style.display = 'flex';
+    editIdx.textContent = (i+1).toString().padStart(2,'0');
+
+    pitchSlider.value = pad.pitch;
+    pitchVal.textContent = (pad.pitch>0?'+':'') + pad.pitch + ' st';
+
+    rateSlider.value = pad.modRate;
+    rateVal.textContent = pad.modRate.toFixed(1) + ' Hz';
+
+    depthSlider.value = pad.modDepth;
+    depthVal.textContent = pad.modDepth + '%';
+
+    modTargetSeg.querySelectorAll('button').forEach(b=>{
+      b.classList.toggle('active', b.dataset.v === pad.modTarget);
+    });
+    modShapeSeg.querySelectorAll('button').forEach(b=>{
+      b.classList.toggle('active', b.dataset.v === pad.modShape);
+    });
+
+    drawWaveform(waveLarge, pad.buffer, '#38e0c4');
+  }
+
+  pitchSlider.addEventListener('input', ()=>{
+    if(selectedIdx<0) return;
+    const v = parseInt(pitchSlider.value,10);
+    pads[selectedIdx].pitch = v;
+    pitchVal.textContent = (v>0?'+':'') + v + ' st';
+  });
+  rateSlider.addEventListener('input', ()=>{
+    if(selectedIdx<0) return;
+    const v = parseFloat(rateSlider.value);
+    pads[selectedIdx].modRate = v;
+    rateVal.textContent = v.toFixed(1) + ' Hz';
+  });
+  depthSlider.addEventListener('input', ()=>{
+    if(selectedIdx<0) return;
+    const v = parseInt(depthSlider.value,10);
+    pads[selectedIdx].modDepth = v;
+    depthVal.textContent = v + '%';
+  });
+  modTargetSeg.addEventListener('click', (e)=>{
+    const btn = e.target.closest('button');
+    if(!btn || selectedIdx<0) return;
+    pads[selectedIdx].modTarget = btn.dataset.v;
+    modTargetSeg.querySelectorAll('button').forEach(b=> b.classList.toggle('active', b===btn));
+    refreshPadVisual(selectedIdx);
+  });
+  modShapeSeg.addEventListener('click', (e)=>{
+    const btn = e.target.closest('button');
+    if(!btn || selectedIdx<0) return;
+    pads[selectedIdx].modShape = btn.dataset.v;
+    modShapeSeg.querySelectorAll('button').forEach(b=> b.classList.toggle('active', b===btn));
+  });
+
+  exportPadBtn.addEventListener('click', ()=>{
+    if(selectedIdx<0) return;
+    const pad = pads[selectedIdx];
+    if(!pad.buffer){ statusLine.textContent = 'pad is empty'; return; }
+    const wavBlob = audioBufferToWav(pad.buffer);
+    downloadBlob(wavBlob, `unit16-pad${(selectedIdx+1).toString().padStart(2,'0')}.wav`);
+    statusLine.textContent = `exported pad ${selectedIdx+1}`;
+  });
+
+  kitExportBtn.addEventListener('click', async ()=>{
+    const loaded = pads.filter(p=>p.buffer);
+    if(loaded.length===0){ statusLine.textContent = 'no samples loaded'; return; }
+    if(typeof JSZip === 'undefined'){ statusLine.textContent = 'zip library unavailable'; return; }
+    statusLine.textContent = 'zipping kit…';
+    try{
+      const zip = new JSZip();
+      loaded.forEach(p=>{
+        const wavBlob = audioBufferToWav(p.buffer);
+        zip.file(`pad${(p.idx+1).toString().padStart(2,'0')}.wav`, wavBlob);
+      });
+      const content = await zip.generateAsync({type:'blob'});
+      downloadBlob(content, 'unit16-kit.zip');
+      statusLine.textContent = `exported ${loaded.length} pad(s)`;
+    }catch(err){
+      statusLine.textContent = 'export failed';
+    }
+  });
+
+  rerecBtn.addEventListener('click', ()=>{
+    if(selectedIdx<0) return;
+    const i = selectedIdx;
+    pads[i].buffer = null;
+    pads[i].durLabel = '';
+    const miniCtx = padEl(i).querySelector('.wave-mini');
+    if(miniCtx) miniCtx.getContext('2d').clearRect(0,0,miniCtx.width,miniCtx.height);
+    refreshPadVisual(i);
+    setArmed(true);
+    statusLine.textContent = `tap pad ${i+1} to re-record`;
+  });
+  clearBtn.addEventListener('click', ()=>{
+    if(selectedIdx<0) return;
+    const i = selectedIdx;
+    pads[i].buffer = null;
+    pads[i].durLabel = '';
+    pads[i].pitch = 0;
+    pads[i].modTarget = 'off';
+    pads[i].modShape = 'sine';
+    pads[i].modRate = 4;
+    pads[i].modDepth = 30;
+    const miniCtx = padEl(i).querySelector('.wave-mini');
+    if(miniCtx) miniCtx.getContext('2d').clearRect(0,0,miniCtx.width,miniCtx.height);
+    refreshPadVisual(i);
+    selectedIdx = -1;
+    editBody.style.display = 'none';
+    emptyHint.style.display = 'block';
+  });
+
+  async function attemptPermission(){
+    permStatus.textContent = 'requesting…';
+    permBtn.disabled = true;
+    permBtn.textContent = 'REQUESTING…';
+    try{
+      ensureAudioCtx();
+      await ensureMic();
+      permOverlay.classList.add('hidden');
+      statusLine.textContent = 'mic ready';
+    }catch(err){
+      permBtn.disabled = false;
+      permBtn.textContent = 'TRY AGAIN';
+      permBtn.classList.add('retry');
+      if(err && err.name === 'NotAllowedError'){
+        permStatus.textContent = 'denied — enable mic for this site in Settings';
+      } else if(err && err.name === 'NotFoundError'){
+        permStatus.textContent = 'no microphone found on this device';
+      } else {
+        permStatus.textContent = 'could not access microphone';
+      }
+    }
+  }
+  permBtn.addEventListener('click', attemptPermission);
+  permSkip.addEventListener('click', ()=>{
+    permOverlay.classList.add('hidden');
+  });
+
+  buildGrid();
+  pads.forEach((_,i)=> refreshPadVisual(i));
+})();
+</script>
+</body>
+</html>
